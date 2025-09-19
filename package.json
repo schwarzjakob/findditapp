@@ -6,23 +6,35 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed": "node scripts/seed.cjs",
+    "test": "jest"
   },
   "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "date-fns": "^4.1.0",
+    "next": "15.5.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.3"
+    "snoowrap": "^1.23.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
-    "@eslint/eslintrc": "^3"
+    "jest": "^29.7.0",
+    "tailwindcss": "^4",
+    "ts-jest": "29",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5"
   },
   "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef"
 }

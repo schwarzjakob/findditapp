@@ -1,0 +1,46 @@
+[
+  {
+    "id": "post_001",
+    "subreddit": "ProductManagement",
+    "title": "How do I automate turning meeting notes into Jira tasks?",
+    "selftext": "Every week I copy paste from Google Docs into Jira. It takes me hours to manually rewrite everything.",
+    "url": "https://reddit.com/r/ProductManagement/comments/post_001",
+    "createdUtc": 1730246400,
+    "upvotes": 210,
+    "comments": 38,
+    "author": "u/pm_throwaway"
+  },
+  {
+    "id": "post_002",
+    "subreddit": "entrepreneur",
+    "title": "Every day I have to compile LinkedIn leads into a spreadsheet",
+    "selftext": "Is there an app that can batch scrape profiles and push to Airtable? It's so repetitive.",
+    "url": "https://reddit.com/r/entrepreneur/comments/post_002",
+    "createdUtc": 1730332800,
+    "upvotes": 145,
+    "comments": 22,
+    "author": "u/leadfinder"
+  },
+  {
+    "id": "post_003",
+    "subreddit": "smallbusiness",
+    "title": "Manual invoice matching takes forever",
+    "selftext": "We export CSVs from Stripe and QuickBooks and reconcile line by line. There's no easy way to automate matching.",
+    "url": "https://reddit.com/r/smallbusiness/comments/post_003",
+    "createdUtc": 1730419200,
+    "upvotes": 89,
+    "comments": 14,
+    "author": "u/smb_ops"
+  },
+  {
+    "id": "post_004",
+    "subreddit": "indiehackers",
+    "title": "How do I batch convert customer emails into support tickets?",
+    "selftext": "Right now we manually copy paste from Gmail into Notion then back into our bug tracker.",
+    "url": "https://reddit.com/r/indiehackers/comments/post_004",
+    "createdUtc": 1730505600,
+    "upvotes": 132,
+    "comments": 19,
+    "author": "u/hackerbot"
+  }
+]
