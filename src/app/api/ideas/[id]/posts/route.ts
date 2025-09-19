@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
 
 import { getIdeaDetails } from "@/lib/ideas/service";
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
-  const ideaId = params.id;
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id: ideaId } = await params;
   if (!ideaId) {
     return NextResponse.json({ error: "Missing idea id" }, { status: 400 });
   }
