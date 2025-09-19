@@ -74,6 +74,11 @@ function initSchema(db: Database.Database) {
   ensureColumn(db, "ideas", "trend_slope", "REAL");
   ensureColumn(db, "ideas", "top_keywords", "TEXT");
   ensureColumn(db, "ideas", "sample_snippet", "TEXT");
+  ensureColumn(db, "ideas", "details_json", "TEXT");
+  ensureColumn(db, "ideas", "wtp_mentions", "INTEGER");
+  ensureColumn(db, "ideas", "complexity_tier", "TEXT");
+  ensureColumn(db, "ideas", "effort_days", "INTEGER");
+  ensureColumn(db, "ideas", "worth_estimate", "TEXT");
 }
 
 function ensureColumn(

@@ -1,5 +1,7 @@
 import "server-only";
 
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 
 import { getIdeaDetails } from "@/lib/ideas/service";

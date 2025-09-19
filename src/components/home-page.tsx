@@ -89,6 +89,9 @@ export interface IdeaSummary {
   topKeywords: string[];
   sampleSnippet: string;
   examplePostIds: string[];
+  complexityTier?: string;
+  predictedEffortDays?: number;
+  worthEstimate?: string;
 }
 
 interface IdeaPost {
@@ -102,6 +105,45 @@ interface IdeaPost {
   author?: string;
   matchedSnippet: string;
   problemPhrase: string;
+}
+
+interface AppIdeaDetails {
+  problemTitle: string;
+  summary: string;
+  targetUsers: string;
+  jobToBeDone: string;
+  solution: string;
+  keyFeatures: string[];
+  requirements: string[];
+  complexityTier: string;
+  predictedEffortDays: number;
+  valueProp: string;
+  worthEstimate: string;
+  monetization: string;
+  risks: string[];
+  wtpMentions: number;
+  evidenceKeywords: string[];
+}
+
+interface IdeaWithDetails {
+  id: string;
+  title: string;
+  score: number;
+  postsCount: number;
+  subsCount: number;
+  upvotesSum: number;
+  commentsSum: number;
+  trend: number[];
+  trendSlope: number;
+  topKeywords: string[];
+  sampleSnippet: string;
+  examplePostIds: string[];
+  complexityTier?: string;
+  predictedEffortDays?: number;
+  worthEstimate?: string;
+  canonical: string;
+  updatedAt: number;
+  details: AppIdeaDetails | null;
 }
 
 interface FetchState {
@@ -151,6 +193,9 @@ export function HomePage() {
   const [postsError, setPostsError] = useState<string | undefined>();
   const [modalOpen, setModalOpen] = useState(false);
   const [modalIdea, setModalIdea] = useState<IdeaSummary | null>(null);
+  const [ideaDetailsCache, setIdeaDetailsCache] = useState<Record<string, IdeaWithDetails>>({});
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | undefined>();
 
   useEffect(() => {
     const paramsWindow = searchParams.get('window');
@@ -221,6 +266,8 @@ export function HomePage() {
     async (idea: IdeaSummary) => {
       setModalIdea(idea);
       setModalOpen(true);
+
+      // Fetch posts
       if (!postsCache[idea.id]) {
         setPostsLoading(true);
         setPostsError(undefined);
@@ -237,8 +284,26 @@ export function HomePage() {
           setPostsLoading(false);
         }
       }
+
+      // Fetch detailed idea analysis
+      if (!ideaDetailsCache[idea.id]) {
+        setDetailsLoading(true);
+        setDetailsError(undefined);
+        try {
+          const res = await fetch(`/api/ideas/${idea.id}`);
+          if (!res.ok) {
+            throw new Error(`Failed to load idea details (${res.status})`);
+          }
+          const json = (await res.json()) as IdeaWithDetails;
+          setIdeaDetailsCache((prev) => ({ ...prev, [idea.id]: json }));
+        } catch (error) {
+          setDetailsError(error instanceof Error ? error.message : 'Unable to load idea details');
+        } finally {
+          setDetailsLoading(false);
+        }
+      }
     },
-    [postsCache],
+    [postsCache, ideaDetailsCache],
   );
 
   const handleRefresh = useCallback(() => {
@@ -277,6 +342,7 @@ export function HomePage() {
   );
 
   const postsForModal = modalIdea ? postsCache[modalIdea.id] ?? [] : [];
+  const ideaDetails = modalIdea ? ideaDetailsCache[modalIdea.id] ?? null : null;
   const isLoading = fetchState.loading;
   const hasIdeas = fetchState.ideas.length > 0;
 
@@ -577,6 +643,24 @@ export function HomePage() {
                       <Tag label={`Subreddits ${idea.subsCount}`} />
                       <Tag label={`Σ Upvotes ${idea.upvotesSum.toLocaleString()}`} />
                       <Tag label={`Σ Comments ${idea.commentsSum.toLocaleString()}`} />
+                      {idea.complexityTier && (
+                        <Tag
+                          label={`${idea.complexityTier}`}
+                          className="bg-blue-100 text-blue-800"
+                        />
+                      )}
+                      {idea.predictedEffortDays && (
+                        <Tag
+                          label={`${idea.predictedEffortDays} days`}
+                          className="bg-green-100 text-green-800"
+                        />
+                      )}
+                      {idea.worthEstimate && (
+                        <Tag
+                          label={idea.worthEstimate}
+                          className="bg-purple-100 text-purple-800"
+                        />
+                      )}
                     </div>
 
                     {idea.topKeywords.length ? (
@@ -642,43 +726,143 @@ export function HomePage() {
                 </div>
 
                 {/* Modal Content */}
-                <div className="max-h-[60vh] overflow-y-auto p-6">
-                  <div className="space-y-4">
-                    {postsLoading ? (
-                      <div className="text-center text-sm text-muted-foreground">Loading supporting posts…</div>
-                    ) : postsError ? (
+                <div className="max-h-[70vh] overflow-y-auto">
+                  {/* App Idea Analysis Section */}
+                  {detailsLoading ? (
+                    <div className="p-6 text-center text-sm text-muted-foreground">Loading app idea analysis…</div>
+                  ) : detailsError ? (
+                    <div className="p-6">
                       <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-                        {postsError}
+                        {detailsError}
                       </div>
-                    ) : postsForModal.length === 0 ? (
-                      <div className="rounded-2xl border bg-muted/40 p-6 text-center text-sm text-muted-foreground">
-                        No posts found for this cluster.
-                      </div>
-                    ) : (
-                      postsForModal.map((post) => (
-                        <article key={post.id} className="rounded-2xl border bg-white p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-md">
-                          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-2 rounded-full bg-[hsl(var(--primary)/0.12)] px-3 py-1 font-medium text-[hsl(var(--primary))]">
-                              r/{post.subreddit}
-                            </span>
-                            <span>
-                              {new Date(post.createdAt).toLocaleDateString()} · ▲{post.upvotes} · 💬{post.comments}
-                            </span>
+                    </div>
+                  ) : ideaDetails?.details ? (
+                    <div className="border-b bg-gradient-to-r from-blue-50 to-purple-50 p-6">
+                      <div className="space-y-6">
+                        {/* Jobs to be Done & Solution */}
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-xl border bg-white p-4">
+                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Jobs to be Done</h3>
+                            <p className="mt-2 text-sm text-foreground">{ideaDetails.details.jobToBeDone}</p>
                           </div>
-                          <a
-                            href={post.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-3 block text-sm font-semibold text-[hsl(var(--primary))] hover:underline"
-                          >
-                            {post.title}
-                          </a>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {post.matchedSnippet || post.problemPhrase}
-                          </p>
-                        </article>
-                      ))
-                    )}
+                          <div className="rounded-xl border bg-white p-4">
+                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Solution</h3>
+                            <p className="mt-2 text-sm text-foreground">{ideaDetails.details.solution}</p>
+                          </div>
+                        </div>
+
+                        {/* Target Users & Value Prop */}
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-xl border bg-white p-4">
+                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Target Users</h3>
+                            <p className="mt-2 text-sm text-foreground">{ideaDetails.details.targetUsers}</p>
+                          </div>
+                          <div className="rounded-xl border bg-white p-4">
+                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Value Proposition</h3>
+                            <p className="mt-2 text-sm text-foreground">{ideaDetails.details.valueProp}</p>
+                          </div>
+                        </div>
+
+                        {/* Business Metrics */}
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <div className="rounded-xl border bg-white p-4 text-center">
+                            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Complexity</h3>
+                            <p className="mt-1 text-lg font-bold text-blue-600">{ideaDetails.details.complexityTier}</p>
+                            <p className="text-xs text-muted-foreground">{ideaDetails.details.predictedEffortDays} days</p>
+                          </div>
+                          <div className="rounded-xl border bg-white p-4 text-center">
+                            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Worth Estimate</h3>
+                            <p className="mt-1 text-lg font-bold text-green-600">{ideaDetails.details.worthEstimate}</p>
+                            <p className="text-xs text-muted-foreground">{ideaDetails.details.wtpMentions} WTP mentions</p>
+                          </div>
+                          <div className="rounded-xl border bg-white p-4 text-center">
+                            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Monetization</h3>
+                            <p className="mt-1 text-sm font-medium text-purple-600">{ideaDetails.details.monetization}</p>
+                          </div>
+                        </div>
+
+                        {/* Key Features */}
+                        <div className="rounded-xl border bg-white p-4">
+                          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Key Features</h3>
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {ideaDetails.details.keyFeatures.map((feature, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-sm">
+                                <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                {feature}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Technical Requirements */}
+                        <div className="rounded-xl border bg-white p-4">
+                          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Technical Requirements</h3>
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {ideaDetails.details.requirements.map((req, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-sm">
+                                <div className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                                {req}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Risks */}
+                        <div className="rounded-xl border bg-white p-4">
+                          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Key Risks</h3>
+                          <div className="mt-3 space-y-2">
+                            {ideaDetails.details.risks.map((risk, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-sm">
+                                <div className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                                {risk}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Supporting Posts Section */}
+                  <div className="p-6">
+                    <h3 className="text-lg font-semibold text-foreground mb-4">Supporting Evidence</h3>
+                    <div className="space-y-4">
+                      {postsLoading ? (
+                        <div className="text-center text-sm text-muted-foreground">Loading supporting posts…</div>
+                      ) : postsError ? (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+                          {postsError}
+                        </div>
+                      ) : postsForModal.length === 0 ? (
+                        <div className="rounded-2xl border bg-muted/40 p-6 text-center text-sm text-muted-foreground">
+                          No posts found for this cluster.
+                        </div>
+                      ) : (
+                        postsForModal.map((post) => (
+                          <article key={post.id} className="rounded-2xl border bg-white p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-md">
+                            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                              <span className="flex items-center gap-2 rounded-full bg-[hsl(var(--primary)/0.12)] px-3 py-1 font-medium text-[hsl(var(--primary))]">
+                                r/{post.subreddit}
+                              </span>
+                              <span>
+                                {new Date(post.createdAt).toLocaleDateString()} · ▲{post.upvotes} · 💬{post.comments}
+                              </span>
+                            </div>
+                            <a
+                              href={post.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-3 block text-sm font-semibold text-[hsl(var(--primary))] hover:underline"
+                            >
+                              {post.title}
+                            </a>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              {post.matchedSnippet || post.problemPhrase}
+                            </p>
+                          </article>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

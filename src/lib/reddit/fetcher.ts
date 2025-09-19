@@ -3,6 +3,7 @@ import { DEFAULT_SUBREDDITS } from "@/config/subreddits";
 import { isOptedOut } from "@/config/optOut";
 import { getMeta, setMeta } from "@/lib/db";
 import type { RedditPost } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 const REQUEST_DELAY_MS = 1100;
 const MAX_ATTEMPTS = 3;
@@ -150,11 +151,15 @@ export async function syncReddit(options: SyncOptions) {
 
   const allPosts: RedditPost[] = [];
 
+  logger.info({ windowDays: options.windowDays, subs: subs.length }, "FETCH_WINDOW_INIT");
+
   for (const subreddit of subs) {
     const metaKey = `lastFetched:${subreddit}`;
     const lastFetchedRaw = getMeta(metaKey);
     const lastFetched = lastFetchedRaw ? Number(lastFetchedRaw) : 0;
     const fetchStart = Math.max(start, lastFetched - 3600);
+
+    logger.info({ sub: subreddit, since: new Date(fetchStart * 1000).toISOString() }, "FETCH_SUB_START");
 
     let posts: RedditPost[] = [];
 
@@ -185,6 +190,16 @@ export async function syncReddit(options: SyncOptions) {
       setMeta(metaKey, String(newest));
     }
     allPosts.push(...filtered);
+
+    logger.info(
+      {
+        sub: subreddit,
+        retrieved: posts.length,
+        stored: filtered.length,
+        skippedExisting: posts.length - filtered.length,
+      },
+      "FETCH_SUB_DONE",
+    );
 
     await sleep(REQUEST_DELAY_MS);
   }

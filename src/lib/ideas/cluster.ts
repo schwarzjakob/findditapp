@@ -148,6 +148,49 @@ function topKeywords(phrases: string[], limit = 5) {
     .map(([keyword]) => keyword);
 }
 
+function generateIdeaTitle(draft: ClusterDraft, keywords: string[]): string {
+  const repr = representativePhrase(draft);
+  const mainKeywords = keywords.slice(0, 3);
+
+  // Common automation patterns
+  if (mainKeywords.some(kw => ["automate", "automation", "automatic"].includes(kw))) {
+    return `Automate ${mainKeywords.filter(kw => !["automate", "automation", "automatic"].includes(kw)).join(" ")} workflows`;
+  }
+
+  // Tool/platform patterns
+  if (mainKeywords.some(kw => ["tool", "platform", "app", "solution"].includes(kw))) {
+    const subject = mainKeywords.filter(kw => !["tool", "platform", "app", "solution"].includes(kw))[0];
+    return subject ? `${subject.charAt(0).toUpperCase() + subject.slice(1)} management tool` : "Workflow management tool";
+  }
+
+  // Integration patterns
+  if (mainKeywords.some(kw => ["integrate", "sync", "connect"].includes(kw))) {
+    return `${mainKeywords.filter(kw => !["integrate", "sync", "connect"].includes(kw)).slice(0, 2).join(" and ")} integration`;
+  }
+
+  // Specific domain patterns
+  if (mainKeywords.includes("invoice")) return "Invoice processing automation";
+  if (mainKeywords.includes("email")) return "Email workflow automation";
+  if (mainKeywords.includes("sheet") || mainKeywords.includes("spreadsheet")) return "Spreadsheet automation tool";
+  if (mainKeywords.includes("thumbnail")) return "Thumbnail generation automation";
+  if (mainKeywords.includes("github")) return "GitHub workflow automation";
+  if (mainKeywords.includes("jira")) return "Jira task automation";
+
+  // Fallback: try to extract meaningful action + object
+  const cleanRepr = repr.replace(/^(i|we|my|our|how to|need to|want to|trying to)\s+/i, "")
+                       .replace(/\?+$/, "")
+                       .trim();
+
+  if (cleanRepr.length > 3 && cleanRepr.length < 50) {
+    return cleanRepr.charAt(0).toUpperCase() + cleanRepr.slice(1);
+  }
+
+  // Last resort: use top keywords
+  return mainKeywords.length > 0
+    ? `${mainKeywords[0].charAt(0).toUpperCase() + mainKeywords[0].slice(1)} automation tool`
+    : "Workflow automation tool";
+}
+
 function buildClusterPosts(draft: ClusterDraft) {
   const entriesByPost = new Map<string, ClusterEntry[]>();
   for (const entry of draft.entries) {
@@ -195,12 +238,12 @@ export function clusterIdeas(params: {
   const now = Date.now();
 
   const clusters: IdeaCluster[] = [];
+  const MIN_CLUSTER_SIZE = 2; // Require at least 2 posts for better validation
 
   for (const draft of mergedDrafts) {
     const clusterPosts = buildClusterPosts(draft);
-    if (clusterPosts.length === 0) continue;
+    if (clusterPosts.length === 0 || clusterPosts.length < MIN_CLUSTER_SIZE) continue;
 
-    const repr = representativePhrase(draft);
     const postScores: number[] = [];
     let upvotesSum = 0;
     let commentsSum = 0;
@@ -235,10 +278,12 @@ export function clusterIdeas(params: {
     const { bins, slope } = computeTrend(clusterPosts, windowDays, now);
 
     const ideaId = `idea_${hashCanonical(`${draft.canonical}_${windowDays}`)}`;
+    const keywords = topKeywords(Array.from(draft.phraseCounts.keys()));
+    const title = generateIdeaTitle(draft, keywords);
 
     clusters.push({
       id: ideaId,
-      title: repr,
+      title,
       canonical: draft.canonical,
       phrases: Array.from(draft.phraseCounts.keys()),
       posts: clusterPosts,
@@ -248,7 +293,7 @@ export function clusterIdeas(params: {
       upvotesSum,
       commentsSum,
       trend: bins,
-      topKeywords: topKeywords(Array.from(draft.phraseCounts.keys())),
+      topKeywords: keywords,
       sampleSnippet: clusterPosts[0].matchedSnippet,
       trendSlope: slope,
     });

@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import type { IdeaCluster, ProblemPhrase, RedditPost } from "@/lib/types";
+import type { AppIdeaDetails, IdeaCluster, ProblemPhrase, RedditPost } from "@/lib/types";
 
 export function upsertPosts(posts: RedditPost[]) {
   const db = getDb();
@@ -88,10 +88,15 @@ export interface IdeaRecordRow {
   trend_slope: number | null;
   top_keywords: string | null;
   sample_snippet: string | null;
+  details_json: string | null;
+  wtp_mentions: number | null;
+  complexity_tier: string | null;
+  effort_days: number | null;
+  worth_estimate: string | null;
   updated_at: number;
 }
 
-export function storeIdeas(windowDays: number, clusters: IdeaCluster[]) {
+export function storeIdeas(windowDays: number, clusters: Array<IdeaCluster & { details?: AppIdeaDetails }>) {
   const db = getDb();
   const selectStmt = db.prepare<{ window: number }>(
     `SELECT id FROM ideas WHERE window_days = ?`
@@ -102,11 +107,13 @@ export function storeIdeas(windowDays: number, clusters: IdeaCluster[]) {
     `INSERT INTO ideas (
       id, window_days, canonical, title, score, posts_count, subs_count,
       upvotes_sum, comments_sum, trend_json, trend_slope, top_keywords,
-      sample_snippet, updated_at
+      sample_snippet, details_json, wtp_mentions, complexity_tier, effort_days,
+      worth_estimate, updated_at
     ) VALUES (
       @id, @window_days, @canonical, @title, @score, @posts_count, @subs_count,
       @upvotes_sum, @comments_sum, @trend_json, @trend_slope, @top_keywords,
-      @sample_snippet, @updated_at
+      @sample_snippet, @details_json, @wtp_mentions, @complexity_tier, @effort_days,
+      @worth_estimate, @updated_at
     )
     ON CONFLICT(id) DO UPDATE SET
       window_days = excluded.window_days,
@@ -121,13 +128,18 @@ export function storeIdeas(windowDays: number, clusters: IdeaCluster[]) {
       trend_slope = excluded.trend_slope,
       top_keywords = excluded.top_keywords,
       sample_snippet = excluded.sample_snippet,
+      details_json = excluded.details_json,
+      wtp_mentions = excluded.wtp_mentions,
+      complexity_tier = excluded.complexity_tier,
+      effort_days = excluded.effort_days,
+      worth_estimate = excluded.worth_estimate,
       updated_at = excluded.updated_at`
   );
   const insertIdeaPostStmt = db.prepare(
     `INSERT OR IGNORE INTO idea_posts (idea_id, post_id) VALUES (?, ?)`
   );
 
-  const storeTx = db.transaction((ideas: IdeaCluster[]) => {
+  const storeTx = db.transaction((ideas: Array<IdeaCluster & { details?: AppIdeaDetails }>) => {
     const existing = selectStmt.all(windowDays).map((row) => row.id);
     for (const ideaId of existing) {
       deleteIdeaPostsStmt.run(ideaId);
@@ -135,6 +147,7 @@ export function storeIdeas(windowDays: number, clusters: IdeaCluster[]) {
     }
 
     for (const cluster of ideas) {
+      const details = cluster.details;
       insertIdeaStmt.run({
         id: cluster.id,
         window_days: windowDays,
@@ -149,6 +162,11 @@ export function storeIdeas(windowDays: number, clusters: IdeaCluster[]) {
         trend_slope: cluster.trendSlope,
         top_keywords: JSON.stringify(cluster.topKeywords),
         sample_snippet: cluster.sampleSnippet,
+        details_json: details ? JSON.stringify(details) : null,
+        wtp_mentions: details?.wtpMentions ?? null,
+        complexity_tier: details?.complexityTier ?? null,
+        effort_days: details?.predictedEffortDays ?? null,
+        worth_estimate: details?.worthEstimate ?? null,
         updated_at: Date.now(),
       });
 
@@ -206,6 +224,16 @@ export function loadIdeas(windowDays: number): IdeaRecordRow[] {
       `SELECT * FROM ideas WHERE window_days = ? ORDER BY score DESC`
     )
     .all(windowDays) as IdeaRecordRow[];
+}
+
+export function loadIdeaById(ideaId: string): IdeaRecordRow | undefined {
+  const db = getDb();
+  const row = db
+    .prepare<IdeaRecordRow>(
+      `SELECT * FROM ideas WHERE id = ? LIMIT 1`
+    )
+    .get(ideaId) as IdeaRecordRow | undefined;
+  return row;
 }
 
 export function loadIdeaPosts(ideaId: string) {
