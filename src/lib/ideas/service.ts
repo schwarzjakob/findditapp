@@ -76,7 +76,7 @@ export function resolveWindowKey(key?: string) {
   return { key: DEFAULT_WINDOW_KEY, days: WINDOW_DAYS[DEFAULT_WINDOW_KEY] } as const;
 }
 
-async function refreshIdeas(windowDays: number, subreddits = DEFAULT_SUBREDDITS): Promise<RunSummary> {
+export async function refreshIdeas(windowDays: number, subreddits = DEFAULT_SUBREDDITS): Promise<RunSummary> {
   const startedAt = Date.now();
 
   if (!process.env.OPENAI_API_KEY) {

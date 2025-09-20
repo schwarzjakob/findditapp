@@ -151,15 +151,13 @@ export async function syncReddit(options: SyncOptions) {
 
   const allPosts: RedditPost[] = [];
 
-  console.log(`Fetching from ${subs.length} subreddits (${options.windowDays} day window)`);
+  console.log(`Fetching posts from ${subs.length} subreddits`);
 
   for (const subreddit of subs) {
     const metaKey = `lastFetched:${subreddit}`;
     const lastFetchedRaw = getMeta(metaKey);
     const lastFetched = lastFetchedRaw ? Number(lastFetchedRaw) : 0;
     const fetchStart = Math.max(start, lastFetched - 3600);
-
-    console.log(`  r/${subreddit}: fetching since ${new Date(fetchStart * 1000).toLocaleString()}`);
 
     let posts: RedditPost[] = [];
 
@@ -190,15 +188,6 @@ export async function syncReddit(options: SyncOptions) {
       setMeta(metaKey, String(newest));
     }
     allPosts.push(...filtered);
-
-    console.log(`  r/${subreddit}: retrieved ${posts.length} posts, stored ${filtered.length} new posts`);
-
-    // Show sample post titles for transparency
-    if (filtered.length > 0) {
-      const sampleTitles = filtered.slice(0, 3).map(p => p.title.substring(0, 60) + '...');
-      console.log(`    Sample posts: ${sampleTitles.join(' | ')}`);
-    }
-
     await sleep(REQUEST_DELAY_MS);
   }
 

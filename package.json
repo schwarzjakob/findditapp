@@ -13,6 +13,7 @@
     "ingest:enhanced": "tsx src/scripts/enhanced-ingest.ts --window=7 --max-posts=100",
     "ingest:production": "tsx src/scripts/enhanced-ingest.ts --window=30 --max-posts=500",
     "worker": "tsx src/scripts/background-worker.ts",
+    "analyze": "tsx src/scripts/run-analysis.ts",
     "logs": "NODE_ENV=development node -e \"console.log('Use pnpm worker to start background collection')\""
   },
   "dependencies": {

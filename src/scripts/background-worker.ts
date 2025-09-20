@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import "dotenv/config";
 import { DEFAULT_SUBREDDITS } from "@/config/subreddits";
 import { syncReddit } from "@/lib/reddit/fetcher";
 import { upsertPosts, loadPostsSince } from "@/lib/storage";
@@ -28,48 +29,32 @@ async function collectPosts() {
   const timestamp = new Date().toISOString();
   const subreddits = getNextSubreddits();
 
-  console.log(`\n[${timestamp}] === COLLECTING_POSTS ===`);
-  console.log(`Processing subreddits: ${subreddits.join(', ')}`);
+  console.log(`\n[${timestamp}] Collecting posts from: ${subreddits.join(', ')}`);
 
   try {
+    // Get current count before fetching
+    const cutoffUtc = Math.floor(Date.now() / 1000) - WINDOW_DAYS * 24 * 60 * 60;
+    const beforeCount = loadPostsSince(cutoffUtc).length;
+
     const fetchedPosts = await syncReddit({ windowDays: WINDOW_DAYS, subreddits });
+    console.log(`Filtering posts`);
 
     if (fetchedPosts.length > 0) {
-      // Show some stats about the fetched posts
-      const avgUpvotes = Math.round(fetchedPosts.reduce((sum, p) => sum + (p.upvotes || 0), 0) / fetchedPosts.length);
-      const avgComments = Math.round(fetchedPosts.reduce((sum, p) => sum + (p.comments || 0), 0) / fetchedPosts.length);
-      const postsWithText = fetchedPosts.filter(p => p.selftext && p.selftext.length > 50).length;
-
-      console.log(`Collected ${fetchedPosts.length} posts (avg: ${avgUpvotes} upvotes, ${avgComments} comments, ${postsWithText} with detailed text)`);
-
       upsertPosts(fetchedPosts);
-      console.log(`Successfully stored ${fetchedPosts.length} posts in database`);
 
-      // Show sample of best posts
-      const topPosts = fetchedPosts
-        .filter(p => (p.upvotes || 0) > 5 && p.selftext && p.selftext.length > 50)
-        .sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0))
-        .slice(0, 2);
+      // Get count after storing to see how many were actually new
+      const afterCount = loadPostsSince(cutoffUtc).length;
+      const newPosts = afterCount - beforeCount;
 
-      if (topPosts.length > 0) {
-        console.log(`Sample high-quality posts:`);
-        topPosts.forEach(p => {
-          const preview = p.selftext.substring(0, 100).replace(/\n/g, ' ') + '...';
-          console.log(`  "${p.title}" (${p.upvotes} ↑) - ${preview}`);
-        });
-      }
-
+      console.log(`Processed ${fetchedPosts.length} posts, ${newPosts} were new`);
+      console.log(`Database: ${afterCount} total posts`);
     } else {
-      console.log(`No new posts found`);
+      console.log(`No posts found`);
+      console.log(`Database: ${beforeCount} total posts`);
     }
 
-    // Get total posts in database
-    const cutoffUtc = Math.floor(Date.now() / 1000) - WINDOW_DAYS * 24 * 60 * 60;
-    const totalPosts = loadPostsSince(cutoffUtc);
-    console.log(`Database contains ${totalPosts.length} total posts (${WINDOW_DAYS} day window)`);
-
   } catch (error) {
-    console.log(`Post collection failed: ${error.message}`);
+    console.log(`Collection failed: ${error.message}`);
   }
 }
 
