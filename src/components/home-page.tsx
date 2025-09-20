@@ -455,10 +455,10 @@ export function HomePage() {
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <h3 className="text-xl font-semibold text-foreground">
+                  <h3 className="text-lg font-semibold text-foreground line-clamp-2">
                     {topIdea ? topIdea.title : 'Waiting for fresh Reddit signals'}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground line-clamp-2">
                     {topIdea?.sampleSnippet ?? 'Hit refresh to pull live threads from builder-heavy subreddits.'}
                   </p>
                 </div>
@@ -478,16 +478,7 @@ export function HomePage() {
                   <span>Weekly trend</span>
                   <Sparkline values={topIdea?.trend ?? []} className="h-8 w-28 text-[hsl(var(--primary))]" />
                 </div>
-
-                {topIdea?.topKeywords.length ? (
-                  <div className="mt-5 flex flex-wrap gap-2 text-xs font-medium text-muted-foreground">
-                    {topIdea.topKeywords.slice(0, 6).map((keyword) => (
-                      <span key={keyword} className="rounded-full bg-muted px-3 py-1 capitalize">
-                        {keyword}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
+                
               </div>
             </div>
           </div>
@@ -589,7 +580,7 @@ export function HomePage() {
             </button>
           </div>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-2">
+          <div className="mt-10 grid gap-6 md:grid-cols-1">
             {isLoading
               ? Array.from({ length: 4 }).map((_, index) => (
                   <div key={index} className="rounded-2xl border border bg-muted/50 p-6 shadow animate-pulse">
