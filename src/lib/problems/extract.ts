@@ -1,6 +1,7 @@
 import { PAIN_WORDS, PROBLEM_CUES, KEYWORD_CUES } from "@/config/patterns";
 import type { ProblemPhrase, RedditPost } from "@/lib/types";
 import { stemTokens } from "@/lib/text/stem";
+import { analyzeProblemWithLLM, type ProblemAnalysis } from "@/lib/llm/openai";
 
 const STOPWORDS = new Set([
   "a",
@@ -186,6 +187,29 @@ export function extractProblemPhrases(post: RedditPost): ProblemPhrase[] {
 
   const unique = dedupePhrases(phrases);
   return unique;
+}
+
+export async function extractProblemsWithLLM(post: RedditPost): Promise<{ phrases: ProblemPhrase[], analysis: ProblemAnalysis }> {
+  const text = `${post.title}\n${post.selftext ?? ""}`;
+
+  // Run LLM analysis
+  const analysis = await analyzeProblemWithLLM(post.title, post.selftext || '');
+
+  const phrases: ProblemPhrase[] = [];
+
+  if (analysis.isActionableProblem && analysis.confidence > 0.5) {
+    // Create a problem phrase from LLM analysis
+    const problemPhrase: ProblemPhrase = {
+      postId: post.id,
+      phrase: analysis.problemStatement,
+      canonical: canonicalizePhrase(analysis.problemStatement),
+      snippet: post.title,
+      cueId: 'llm_detected'
+    };
+    phrases.push(problemPhrase);
+  }
+
+  return { phrases, analysis };
 }
 
 export function countPainWords(text: string): number {

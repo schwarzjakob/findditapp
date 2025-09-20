@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const windowParam = searchParams.get("window") ?? undefined;
   const sortParam = (searchParams.get("sort") ?? "top") as SortOption;
   const filterParam = searchParams.get("q") ?? undefined;
-  const force = searchParams.get("refresh") === "true";
+  const force = true; // TESTING: Force refresh to bypass cache
 
   const { days } = resolveWindowKey(windowParam ?? undefined);
 

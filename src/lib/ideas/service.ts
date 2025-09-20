@@ -3,6 +3,7 @@ import { getMeta, setMeta } from "@/lib/db";
 import { extractProblemPhrases } from "@/lib/problems/extract";
 import { clusterIdeas } from "@/lib/ideas/cluster";
 import { synthesizeIdea } from "@/lib/ideas/synthesize";
+import { runEnhancedPipeline } from "@/lib/pipeline/enhanced";
 import {
   loadIdeaById,
   loadIdeaPostIds,
@@ -76,84 +77,269 @@ export function resolveWindowKey(key?: string) {
 }
 
 async function refreshIdeas(windowDays: number, subreddits = DEFAULT_SUBREDDITS): Promise<RunSummary> {
+  // TESTING: Limit to 3 subreddits for faster testing
+  subreddits = subreddits.slice(0, 3);
   const startedAt = Date.now();
 
-  logger.info({ stage: "banner" }, "=== SOURCING_REDDIT_POSTS ===");
-  const fetchedPosts = await syncReddit({ windowDays, subreddits });
-  logger.info({ postsFetched: fetchedPosts.length, subs: subreddits.length }, "SOURCING_DONE");
-  if (fetchedPosts.length > 0) {
-    upsertPosts(fetchedPosts);
+  if (!process.env.OPENAI_API_KEY) {
+    console.log("\n=== NO_OPENAI_KEY_AVAILABLE ===");
+    throw new Error("OpenAI API key required for analysis");
   }
 
+  console.log("\n=== SIMPLE_PIPELINE_START ===");
+
+  // Step 1: Check existing posts first
   const cutoffUtc = Math.floor(Date.now() / 1000) - windowDays * 24 * 60 * 60;
-  const posts = loadPostsSince(cutoffUtc);
+  let posts = loadPostsSince(cutoffUtc);
+  let fetchedCount = 0;
+
+  console.log(`Found ${posts.length} existing posts in database (window: ${windowDays} days)`);
+
+  // Step 2: Fetch new posts only if we don't have enough
+  if (posts.length < 50) {
+    console.log("\n=== FETCHING_REDDIT_POSTS ===");
+    try {
+      const fetchedPosts = await syncReddit({ windowDays, subreddits });
+      fetchedCount = fetchedPosts.length;
+      console.log(`Fetched ${fetchedCount} posts from ${subreddits.length} subreddits`);
+
+      if (fetchedPosts.length > 0) {
+        console.log("Storing posts in database...");
+        try {
+          upsertPosts(fetchedPosts);
+          console.log(`Successfully stored ${fetchedPosts.length} posts`);
+        } catch (error) {
+          console.log(`ERROR storing posts: ${error.message}`);
+          console.log(`First post sample:`, fetchedPosts[0]);
+        }
+        posts = loadPostsSince(cutoffUtc);
+        console.log(`Database now contains ${posts.length} total posts`);
+      }
+    } catch (error) {
+      console.log(`Reddit fetch failed: ${error.message}, continuing with existing posts`);
+    }
+  } else {
+    console.log("Sufficient posts available, skipping Reddit fetch");
+  }
+
   if (posts.length === 0) {
-    logger.info({ stage: "banner" }, "=== FILTERING_RELEVANT_POSTS ===");
-    logger.info({ relevant: 0, discarded: 0 }, "EXTRACT_DONE");
-    logger.info({ stage: "banner" }, "=== CLUSTERING_POSTS ===");
-    logger.info({ clusters: 0, avgClusterSize: 0 }, "CLUSTER_DONE");
-    logger.info({ stage: "banner" }, "=== SYNTHESIZING_APP_IDEAS ===");
-    logger.info({ ideas: 0 }, "IDEA_SYNTH_DONE");
-    logger.info({ stage: "banner" }, "=== SCORING_IDEAS ===");
-    logger.info({ ideas: 0, topScore: 0 }, "SCORE_DONE");
-    logger.info({ stage: "banner" }, "=== PERSISTING_RESULTS ===");
+    console.log("\n=== NO_POSTS_AVAILABLE ===");
     storeIdeas(windowDays, []);
     setMeta(cacheKey(windowDays), String(Date.now()));
-    logger.info({ ideasUpserted: 0, relations: 0 }, "PERSIST_DONE");
-    const summary = {
+    return {
       subs: subreddits.length,
-      postsFetched: fetchedPosts.length,
+      postsFetched: fetchedCount,
       relevant: 0,
       clusters: 0,
       ideas: 0,
       durationMs: Date.now() - startedAt,
-    } satisfies RunSummary;
-    logger.info({ stage: "banner", ...summary }, "=== INGEST_COMPLETE ===");
-    return summary;
+    };
   }
 
-  logger.info({ stage: "banner" }, "=== FILTERING_RELEVANT_POSTS ===");
-  const problems = posts.flatMap((post) => extractProblemPhrases(post));
-  if (problems.length > 0) {
-    replaceProblems(problems);
+  console.log(`\n=== ANALYZING_WITH_OPENAI ===`);
+  console.log(`Processing ${posts.length} posts for idea analysis`);
+
+  // Import OpenAI analysis components
+  const { extractProblemsWithLLM } = await import('@/lib/problems/extract');
+  const { clusterSemanticProblems } = await import('@/lib/clustering/semantic');
+  const { calculateBusinessMetrics, assessQuality, rankOpportunities, filterViableOpportunities } = await import('@/lib/analysis/business');
+  const { analyzeClusterWithLLM } = await import('@/lib/llm/openai');
+
+  // Step 3: OpenAI analysis
+  const problemData = [];
+  const batchSize = 5;
+  const postsToProcess = posts.slice(0, 100);
+
+  console.log(`Analyzing ${postsToProcess.length} posts in batches of ${batchSize}`);
+
+  for (let i = 0; i < postsToProcess.length; i += batchSize) {
+    const batch = postsToProcess.slice(i, i + batchSize);
+
+    const batchPromises = batch.map(async (post) => {
+      try {
+        const { phrases, analysis } = await extractProblemsWithLLM(post);
+        return { post, phrases, analysis };
+      } catch (error) {
+        console.log(`Failed to analyze post ${post.id}: ${error.message}`);
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    problemData.push(...batchResults.filter(Boolean));
+
+    console.log(`Analyzed ${problemData.length}/${postsToProcess.length} posts`);
+
+    if (i + batchSize < postsToProcess.length) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
   }
-  const uniqueRelevant = new Set(problems.map((p) => p.postId));
-  logger.info({ relevant: uniqueRelevant.size, discarded: posts.length - uniqueRelevant.size }, "EXTRACT_DONE");
 
-  logger.info({ stage: "banner" }, "=== CLUSTERING_POSTS ===");
-  const problemsFromDb = loadProblemsForPosts(posts.map((post) => post.id));
-  const clusters = clusterIdeas({ posts, problems: problemsFromDb, windowDays });
-  const avgClusterSize = clusters.length
-    ? Number((clusters.reduce((sum, c) => sum + c.postsCount, 0) / clusters.length).toFixed(2))
-    : 0;
-  logger.info({ clusters: clusters.length, avgClusterSize }, "CLUSTER_DONE");
+  const actionableProblems = problemData.filter(d =>
+    d.analysis.isActionableProblem && d.analysis.confidence > 0.5
+  );
 
-  logger.info({ stage: "banner" }, "=== SYNTHESIZING_APP_IDEAS ===");
-  const clustersWithDetails = clusters.map((cluster) => ({
-    ...cluster,
-    details: synthesizeIdea(cluster),
+  console.log(`Found ${actionableProblems.length} actionable problems from ${problemData.length} analyzed posts`);
+
+  if (actionableProblems.length === 0) {
+    console.log("\n=== NO_ACTIONABLE_PROBLEMS_FOUND ===");
+    storeIdeas(windowDays, []);
+    setMeta(cacheKey(windowDays), String(Date.now()));
+    return {
+      subs: subreddits.length,
+      postsFetched: fetchedCount,
+      relevant: problemData.length,
+      clusters: 0,
+      ideas: 0,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  // Step 4: Clustering
+  console.log('\n=== CLUSTERING_WITH_OPENAI ===');
+  const allPhrases = actionableProblems.flatMap(d => d.phrases);
+  const allPosts = actionableProblems.map(d => d.post);
+
+  console.log(`Clustering ${allPhrases.length} problem phrases`);
+
+  const clusteringResult = await clusterSemanticProblems(allPhrases, allPosts, {
+    minClusterSize: 2,
+    similarityThreshold: 0.6
+  });
+
+  const highQualityClusters = clusteringResult.clusters.filter(cluster =>
+    cluster.coherence_score >= 0.5 && cluster.size >= 2
+  );
+
+  console.log(`Found ${highQualityClusters.length} high-quality clusters from ${clusteringResult.clusters.length} total clusters`);
+
+  if (highQualityClusters.length === 0) {
+    console.log("\n=== NO_QUALITY_CLUSTERS_FOUND ===");
+    storeIdeas(windowDays, []);
+    setMeta(cacheKey(windowDays), String(Date.now()));
+    return {
+      subs: subreddits.length,
+      postsFetched: fetchedCount,
+      relevant: problemData.length,
+      clusters: clusteringResult.clusters.length,
+      ideas: 0,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  // Step 5: Business analysis and idea generation
+  console.log('\n=== GENERATING_IDEAS ===');
+  const opportunities = [];
+
+  for (const cluster of highQualityClusters) {
+    try {
+      const clusterPostIds = new Set(cluster.posts.map(p => p.id));
+      const clusterAnalyses = problemData
+        .filter(d => clusterPostIds.has(d.post.id))
+        .map(d => d.analysis);
+
+      if (clusterAnalyses.length === 0) continue;
+
+      const businessMetrics = calculateBusinessMetrics(cluster, clusterAnalyses, cluster.posts);
+      const qualityAssessment = assessQuality(cluster, clusterAnalyses, businessMetrics);
+
+      const clusterData = {
+        title: `Cluster of ${cluster.size} posts`,
+        phrases: cluster.phrases.map(p => p.phrase),
+        posts: cluster.posts.map(p => ({
+          title: p.title,
+          content: p.selftext || '',
+          subreddit: p.subreddit,
+          upvotes: p.upvotes,
+          comments: p.comments
+        })),
+        businessMetrics,
+        qualityAssessment
+      };
+
+      const llmAnalysis = await analyzeClusterWithLLM(clusterData);
+
+      opportunities.push({
+        cluster,
+        analyses: clusterAnalyses,
+        businessMetrics,
+        qualityAssessment,
+        llmAnalysis,
+        posts: cluster.posts
+      });
+
+    } catch (error) {
+      console.log(`Failed to generate idea for cluster ${cluster.id}: ${error.message}`);
+    }
+  }
+
+  console.log(`Generated ${opportunities.length} business opportunities`);
+
+  const viableOpportunities = filterViableOpportunities(opportunities);
+  const rankedOpportunities = rankOpportunities(viableOpportunities);
+
+  console.log(`${viableOpportunities.length} viable opportunities, ${rankedOpportunities.length} final ranked ideas`);
+
+  const clustersWithDetails = rankedOpportunities.map(opp => ({
+    id: opp.cluster.id,
+    title: opp.llmAnalysis.title,
+    canonical: opp.cluster.phrases[0]?.canonical || 'unknown',
+    phrases: opp.cluster.phrases.map(p => p.phrase),
+    posts: opp.cluster.posts.map(post => ({
+      id: post.id,
+      subreddit: post.subreddit,
+      url: post.url,
+      title: post.title,
+      createdUtc: post.createdUtc,
+      upvotes: post.upvotes,
+      comments: post.comments,
+      author: post.author,
+      matchedSnippet: opp.cluster.phrases[0]?.snippet || post.title,
+      problemPhrase: opp.cluster.phrases[0]?.phrase || post.title
+    })),
+    score: opp.qualityAssessment.overall_score,
+    postsCount: opp.cluster.size,
+    subsCount: new Set(opp.cluster.posts.map(p => p.subreddit)).size,
+    upvotesSum: opp.cluster.posts.reduce((sum, p) => sum + (p.upvotes || 0), 0),
+    commentsSum: opp.cluster.posts.reduce((sum, p) => sum + (p.comments || 0), 0),
+    trend: Array(7).fill(0),
+    trendSlope: 0,
+    topKeywords: opp.llmAnalysis.key_features.slice(0, 5),
+    sampleSnippet: opp.llmAnalysis.summary,
+    details: {
+      problemTitle: opp.llmAnalysis.title,
+      summary: opp.llmAnalysis.summary,
+      targetUsers: opp.llmAnalysis.target_users,
+      jobToBeDone: opp.llmAnalysis.solution_approach,
+      solution: opp.llmAnalysis.solution_approach,
+      keyFeatures: opp.llmAnalysis.key_features,
+      requirements: [],
+      complexityTier: opp.llmAnalysis.technical_complexity,
+      predictedEffortDays: opp.llmAnalysis.estimated_effort_days,
+      valueProp: opp.llmAnalysis.monetization_potential,
+      worthEstimate: opp.businessMetrics.revenue_potential,
+      monetization: opp.llmAnalysis.monetization_potential,
+      risks: opp.llmAnalysis.risks,
+      wtpMentions: opp.analyses.reduce((sum, a) => sum + a.willingness_to_pay_signals, 0),
+      evidenceKeywords: opp.llmAnalysis.key_features
+    }
   }));
-  logger.info({ ideas: clustersWithDetails.length }, "IDEA_SYNTH_DONE");
 
-  logger.info({ stage: "banner" }, "=== SCORING_IDEAS ===");
-  const topScore = clustersWithDetails[0]?.score ?? 0;
-  logger.info({ ideas: clustersWithDetails.length, topScore }, "SCORE_DONE");
-
-  logger.info({ stage: "banner" }, "=== PERSISTING_RESULTS ===");
+  console.log("\n=== STORING_RESULTS ===");
   storeIdeas(windowDays, clustersWithDetails);
   setMeta(cacheKey(windowDays), String(Date.now()));
-  const relationCount = clustersWithDetails.reduce((acc, cluster) => acc + cluster.posts.length, 0);
-  logger.info({ ideasUpserted: clustersWithDetails.length, relations: relationCount }, "PERSIST_DONE");
 
   const summary: RunSummary = {
     subs: subreddits.length,
-    postsFetched: fetchedPosts.length,
-    relevant: uniqueRelevant.size,
-    clusters: clustersWithDetails.length,
+    postsFetched: fetchedCount,
+    relevant: problemData.length,
+    clusters: highQualityClusters.length,
     ideas: clustersWithDetails.length,
     durationMs: Date.now() - startedAt,
   };
-  logger.info({ stage: "banner", ...summary }, "=== INGEST_COMPLETE ===");
+
+  console.log(`\n=== PIPELINE_COMPLETE ===`);
+  console.log(`Successfully generated ${clustersWithDetails.length} ideas in ${Math.round(summary.durationMs / 1000)}s`);
   return summary;
 }
 
