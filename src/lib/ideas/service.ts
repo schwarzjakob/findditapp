@@ -77,8 +77,6 @@ export function resolveWindowKey(key?: string) {
 }
 
 async function refreshIdeas(windowDays: number, subreddits = DEFAULT_SUBREDDITS): Promise<RunSummary> {
-  // TESTING: Limit to 3 subreddits for faster testing
-  subreddits = subreddits.slice(0, 3);
   const startedAt = Date.now();
 
   if (!process.env.OPENAI_API_KEY) {
@@ -86,49 +84,21 @@ async function refreshIdeas(windowDays: number, subreddits = DEFAULT_SUBREDDITS)
     throw new Error("OpenAI API key required for analysis");
   }
 
-  console.log("\n=== SIMPLE_PIPELINE_START ===");
+  console.log("\n=== ANALYSIS_PIPELINE_START ===");
 
-  // Step 1: Check existing posts first
+  // Only analyze existing posts - no fetching
   const cutoffUtc = Math.floor(Date.now() / 1000) - windowDays * 24 * 60 * 60;
-  let posts = loadPostsSince(cutoffUtc);
-  let fetchedCount = 0;
+  const posts = loadPostsSince(cutoffUtc);
 
-  console.log(`Found ${posts.length} existing posts in database (window: ${windowDays} days)`);
-
-  // Step 2: Fetch new posts only if we don't have enough
-  if (posts.length < 50) {
-    console.log("\n=== FETCHING_REDDIT_POSTS ===");
-    try {
-      const fetchedPosts = await syncReddit({ windowDays, subreddits });
-      fetchedCount = fetchedPosts.length;
-      console.log(`Fetched ${fetchedCount} posts from ${subreddits.length} subreddits`);
-
-      if (fetchedPosts.length > 0) {
-        console.log("Storing posts in database...");
-        try {
-          upsertPosts(fetchedPosts);
-          console.log(`Successfully stored ${fetchedPosts.length} posts`);
-        } catch (error) {
-          console.log(`ERROR storing posts: ${error.message}`);
-          console.log(`First post sample:`, fetchedPosts[0]);
-        }
-        posts = loadPostsSince(cutoffUtc);
-        console.log(`Database now contains ${posts.length} total posts`);
-      }
-    } catch (error) {
-      console.log(`Reddit fetch failed: ${error.message}, continuing with existing posts`);
-    }
-  } else {
-    console.log("Sufficient posts available, skipping Reddit fetch");
-  }
+  console.log(`Found ${posts.length} posts in database for analysis (window: ${windowDays} days)`);
 
   if (posts.length === 0) {
-    console.log("\n=== NO_POSTS_AVAILABLE ===");
+    console.log("\n=== NO_POSTS_AVAILABLE_FOR_ANALYSIS ===");
     storeIdeas(windowDays, []);
     setMeta(cacheKey(windowDays), String(Date.now()));
     return {
       subs: subreddits.length,
-      postsFetched: fetchedCount,
+      postsFetched: 0,
       relevant: 0,
       clusters: 0,
       ideas: 0,
@@ -331,7 +301,7 @@ async function refreshIdeas(windowDays: number, subreddits = DEFAULT_SUBREDDITS)
 
   const summary: RunSummary = {
     subs: subreddits.length,
-    postsFetched: fetchedCount,
+    postsFetched: 0, // No posts fetched - analysis only
     relevant: problemData.length,
     clusters: highQualityClusters.length,
     ideas: clustersWithDetails.length,

@@ -151,7 +151,7 @@ export async function syncReddit(options: SyncOptions) {
 
   const allPosts: RedditPost[] = [];
 
-  logger.info({ windowDays: options.windowDays, subs: subs.length }, "FETCH_WINDOW_INIT");
+  console.log(`Fetching from ${subs.length} subreddits (${options.windowDays} day window)`);
 
   for (const subreddit of subs) {
     const metaKey = `lastFetched:${subreddit}`;
@@ -159,7 +159,7 @@ export async function syncReddit(options: SyncOptions) {
     const lastFetched = lastFetchedRaw ? Number(lastFetchedRaw) : 0;
     const fetchStart = Math.max(start, lastFetched - 3600);
 
-    logger.info({ sub: subreddit, since: new Date(fetchStart * 1000).toISOString() }, "FETCH_SUB_START");
+    console.log(`  r/${subreddit}: fetching since ${new Date(fetchStart * 1000).toLocaleString()}`);
 
     let posts: RedditPost[] = [];
 
@@ -191,15 +191,13 @@ export async function syncReddit(options: SyncOptions) {
     }
     allPosts.push(...filtered);
 
-    logger.info(
-      {
-        sub: subreddit,
-        retrieved: posts.length,
-        stored: filtered.length,
-        skippedExisting: posts.length - filtered.length,
-      },
-      "FETCH_SUB_DONE",
-    );
+    console.log(`  r/${subreddit}: retrieved ${posts.length} posts, stored ${filtered.length} new posts`);
+
+    // Show sample post titles for transparency
+    if (filtered.length > 0) {
+      const sampleTitles = filtered.slice(0, 3).map(p => p.title.substring(0, 60) + '...');
+      console.log(`    Sample posts: ${sampleTitles.join(' | ')}`);
+    }
 
     await sleep(REQUEST_DELAY_MS);
   }

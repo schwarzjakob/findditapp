@@ -12,7 +12,8 @@
     "ingest": "tsx src/scripts/ingest-runner.ts --window 30 --force",
     "ingest:enhanced": "tsx src/scripts/enhanced-ingest.ts --window=7 --max-posts=100",
     "ingest:production": "tsx src/scripts/enhanced-ingest.ts --window=30 --max-posts=500",
-    "logs": "NODE_ENV=development node -e \"console.log('Use pnpm ingest to see pipeline logs')\""
+    "worker": "tsx src/scripts/background-worker.ts",
+    "logs": "NODE_ENV=development node -e \"console.log('Use pnpm worker to start background collection')\""
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
