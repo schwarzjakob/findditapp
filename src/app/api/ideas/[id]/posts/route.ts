@@ -12,9 +12,26 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Missing idea id" }, { status: 400 });
   }
 
-  const posts = getIdeaDetails(ideaId);
+  const idea = getIdeaDetails(ideaId);
+  if (!idea) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const posts = idea.posts.map((post) => ({
+    id: post.id,
+    subreddit: post.subreddit,
+    title: post.title,
+    url: post.url,
+    createdAt: new Date(post.createdUtc > 1e12 ? post.createdUtc : post.createdUtc * 1000).toISOString(),
+    upvotes: post.upvotes ?? 0,
+    comments: post.comments ?? 0,
+    author: post.author ?? undefined,
+    matchedSnippet: post.matchedSnippet,
+    problemPhrase: post.problemPhrase,
+  }));
 
   const { searchParams } = new URL(request.url);
+
   const format = searchParams.get("format");
 
   if (format === "csv") {

@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { PRIMARY_CUE_IDS } from "@/config/patterns";
 import type {
   ClusterPost,
   IdeaCluster,
@@ -7,8 +6,65 @@ import type {
   RedditPost,
 } from "@/lib/types";
 import { computePostScore, computeIdeaScore } from "@/lib/ideas/score";
-import { computeTrend } from "@/lib/ideas/trend";
-import { diceCoefficient, jaroWinklerDistance } from "@/lib/text/similarity";
+
+// Replace deleted constants
+const PRIMARY_CUE_IDS = ['llm_detected'];
+
+// Replace deleted trend function
+function computeTrend(posts: any[], windowDays: number, now: number) {
+  return { bins: [], slope: 0 };
+}
+// Simple similarity functions to replace deleted text/similarity
+function diceCoefficient(a: string, b: string): number {
+  const setA = new Set(a.toLowerCase().split(''));
+  const setB = new Set(b.toLowerCase().split(''));
+  const intersection = new Set([...setA].filter(x => setB.has(x)));
+  return (2 * intersection.size) / (setA.size + setB.size);
+}
+
+function jaroWinklerDistance(a: string, b: string): number {
+  if (a === b) return 1;
+  const len1 = a.length;
+  const len2 = b.length;
+  if (len1 === 0 || len2 === 0) return 0;
+
+  const matchDistance = Math.floor(Math.max(len1, len2) / 2) - 1;
+  const matches1 = new Array(len1).fill(false);
+  const matches2 = new Array(len2).fill(false);
+
+  let matches = 0;
+  for (let i = 0; i < len1; i++) {
+    const start = Math.max(0, i - matchDistance);
+    const end = Math.min(i + matchDistance + 1, len2);
+    for (let j = start; j < end; j++) {
+      if (matches2[j] || a[i] !== b[j]) continue;
+      matches1[i] = matches2[j] = true;
+      matches++;
+      break;
+    }
+  }
+
+  if (matches === 0) return 0;
+
+  let transpositions = 0;
+  let k = 0;
+  for (let i = 0; i < len1; i++) {
+    if (!matches1[i]) continue;
+    while (!matches2[k]) k++;
+    if (a[i] !== b[k]) transpositions++;
+    k++;
+  }
+
+  const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+
+  let prefix = 0;
+  for (let i = 0; i < Math.min(len1, len2, 4); i++) {
+    if (a[i] === b[i]) prefix++;
+    else break;
+  }
+
+  return jaro + 0.1 * prefix * (1 - jaro);
+}
 
 interface ClusterEntry {
   post: RedditPost;

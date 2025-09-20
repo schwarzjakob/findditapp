@@ -1,7 +1,5 @@
-import { PAIN_WORDS, PROBLEM_CUES, KEYWORD_CUES } from "@/config/patterns";
 import type { ProblemPhrase, RedditPost } from "@/lib/types";
-import { stemTokens } from "@/lib/text/stem";
-import { analyzeProblemWithLLM, type ProblemAnalysis } from "@/lib/llm/openai";
+import OpenAI from "openai";
 
 const STOPWORDS = new Set([
   "a",
@@ -113,8 +111,7 @@ export function canonicalizePhrase(phrase: string) {
     .split(/\s+/)
     .filter((token) => token && !STOPWORDS.has(token));
 
-  const stemmed = stemTokens(tokens);
-  const unique = Array.from(new Set(stemmed)).sort();
+  const unique = Array.from(new Set(tokens)).sort();
   return unique.join("_");
 }
 
@@ -153,72 +150,98 @@ function extractFromCue(
 }
 
 export function extractProblemPhrases(post: RedditPost): ProblemPhrase[] {
-  const text = `${post.title}\n${post.selftext ?? ""}`;
-  const sentences = text
-    .split(SENTENCE_SPLIT_REGEX)
-    .map((sentence) => normalizeWhitespace(sentence))
-    .filter(Boolean);
-
-  const phrases: ProblemPhrase[] = [];
-
-  for (const sentence of sentences) {
-    for (const cue of PROBLEM_CUES) {
-      const match = sentence.match(cue.regex);
-      if (match) {
-        const clause = match.groups?.clause ?? sentence.slice(match.index + match[0].length);
-        const phrase = extractFromCue(sentence, cue.id, clause);
-        if (phrase) {
-          phrase.postId = post.id;
-          phrases.push(phrase);
-        }
-      }
-    }
-
-    for (const cue of KEYWORD_CUES) {
-      if (cue.regex.test(sentence)) {
-        const phrase = extractFromCue(sentence, cue.id, sentence);
-        if (phrase) {
-          phrase.postId = post.id;
-          phrases.push(phrase);
-        }
-      }
-    }
-  }
-
-  const unique = dedupePhrases(phrases);
-  return unique;
+  // Legacy regex extraction removed - now only using OpenAI
+  return [];
 }
 
-export async function extractProblemsWithLLM(post: RedditPost): Promise<{ phrases: ProblemPhrase[], analysis: ProblemAnalysis }> {
+
+function extractJsonSegment(content: string | null | undefined): string {
+  if (!content) {
+    throw new Error('Empty response from OpenAI');
+  }
+  const trimmed = content.trim();
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const withoutFence = fencedMatch ? fencedMatch[1] : trimmed;
+  const firstBrace = withoutFence.indexOf('{');
+  const lastBrace = withoutFence.lastIndexOf('}');
+  const candidate = firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace
+    ? withoutFence.slice(firstBrace, lastBrace + 1)
+    : withoutFence;
+  const jsonText = candidate.trim();
+  if (!jsonText) {
+    throw new Error('No JSON object found in OpenAI response');
+  }
+  return jsonText;
+}
+
+function parseJsonResponse(content: string | null | undefined) {
+  const jsonText = extractJsonSegment(content);
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    const snippet = jsonText.slice(0, 200);
+    throw new Error(`Invalid JSON from OpenAI: ${snippet}`);
+  }
+}
+
+export async function extractProblemsWithLLM(post: RedditPost): Promise<{ phrases: ProblemPhrase[], analysis: any }> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const text = `${post.title}\n${post.selftext ?? ""}`;
 
-  // Run LLM analysis
-  const analysis = await analyzeProblemWithLLM(post.title, post.selftext || '');
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: "Analyze this Reddit post and determine if it contains an actionable business problem. Respond with JSON: {\"isActionableProblem\": boolean, \"problemStatement\": string, \"confidence\": number}"
+      },
+      {
+        role: "user",
+        content: text
+      }
+    ],
+    temperature: 0.3
+  });
 
+  const result = parseJsonResponse(completion.choices[0].message?.content);
   const phrases: ProblemPhrase[] = [];
 
-  if (analysis.isActionableProblem && analysis.confidence > 0.5) {
-    // Create a problem phrase from LLM analysis
+  if (result.isActionableProblem && result.confidence > 0.5) {
     const problemPhrase: ProblemPhrase = {
       postId: post.id,
-      phrase: analysis.problemStatement,
-      canonical: canonicalizePhrase(analysis.problemStatement),
+      phrase: result.problemStatement,
+      canonical: canonicalizePhrase(result.problemStatement),
       snippet: post.title,
       cueId: 'llm_detected'
     };
     phrases.push(problemPhrase);
   }
 
-  return { phrases, analysis };
+  return { phrases, analysis: result };
+}
+
+const PAIN_WORDS = [
+  'problem',
+  'issue',
+  'difficult',
+  'hard',
+  'struggle',
+  'pain',
+  'annoying',
+  'frustrating',
+];
+
+function escapeRegex(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function countPainWords(text: string): number {
-  const lowered = text.toLowerCase();
+  if (!text) return 0;
+  const lower = text.toLowerCase();
   let hits = 0;
   for (const word of PAIN_WORDS) {
-    if (lowered.includes(word)) {
-      hits += 1;
-    }
+    const regex = new RegExp(`\\b${escapeRegex(word)}\\b`, 'gi');
+    hits += lower.match(regex)?.length ?? 0;
   }
   return hits;
 }

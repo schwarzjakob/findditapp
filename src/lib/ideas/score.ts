@@ -1,5 +1,5 @@
-import { HIGHLIGHT_KEYWORDS } from "@/config/patterns";
 import type { RedditPost } from "@/lib/types";
+import { HIGHLIGHT_KEYWORDS } from "@/config/patterns";
 import { countPainWords } from "@/lib/problems/extract";
 
 export interface PostScoreInput {
